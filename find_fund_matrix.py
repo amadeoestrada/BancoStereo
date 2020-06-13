@@ -3,6 +3,7 @@
 """
     This Python program finds the fundamental matrix using two images of the same scenario.
     A checkboard pattern and a stereo setup are used.
+
 """
 __author__ = "Amadeo Estrada"
 __date__ = "14 / May / 2020"
@@ -93,6 +94,9 @@ else:
 
             # Draw and display the corners
             cv2.drawChessboardCorners(img_r, (nCols, nRows), corners2_r, ret_r)
+
+
+
             cv2.imshow('Right Camera', img_r)
             # cv2.waitKey(0)
             k = cv2.waitKey(0) & 0xFF
@@ -167,6 +171,7 @@ else:
             # imgNotGood = fname
             sys.exit()
 
+cv2.destroyAllWindows()
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 # Convert the pixel coordinates into normalised coordinates (-1 to 1) with the centroid ( 0 ) at the center
@@ -186,10 +191,16 @@ right_coord = np.squeeze(right_coord)  # Convert to 2 dimension array
 # Create Z column with ones
 z_coord = np.ones((54,1), np.float32)
 
+
+
 # Join x and y coordinates into RIGHT coordinates
 #right_coord = np.concatenate((x_coord, y_coord), axis=1)
 # Now, join z coordinates to the left of RIGHT coordinates
-right_coord = np.concatenate((right_coord, z_coord), axis=1)
+#right_coord = np.concatenate((right_coord, z_coord), axis=1)      *****
+
+# Vertically flip array
+coord_right = np.flipud(right_coord)
+
 
 # --- Normalise LEFT image coordinates
 
@@ -205,49 +216,56 @@ left_coord = np.squeeze(left_coord)  # Convert to 2 dimension array
 # Join x and y coordinates into RIGHT coordinates
 #left_coord = np.concatenate((x_coord, y_coord), axis=1)
 # Now, join z coordinates to the left of LEFT coordinates
-left_coord = np.concatenate((left_coord, z_coord), axis=1)
+#left_coord = np.concatenate((left_coord, z_coord), axis=1)    *****
+
+# Vertically flip array
+coord_left = np.flipud(left_coord)
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Find the fundamental matrix and use OpenCV routine for comparison
 F1, mask = cv2.findFundamentalMat(right_coord,left_coord,cv2.FM_8POINT)
 
 # We select only inlier points
-right_coord = right_coord[mask.ravel()==1]
-left_coord = left_coord[mask.ravel()==1]
+coord_right = coord_right[mask.ravel()==1]
+coord_left = coord_left[mask.ravel()==1]
 
-def drawlines(img1,img2,lines,right_coord,left_coord):
+def drawlines(img1,img2,lines,pts1,pts2):
     ''' img1 - image on which we draw the epilines for the points in img2
         lines - corresponding epilines '''
     r,c,v1 = img1.shape
     #img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
     #img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
-    for r,pt1,pt2 in zip(lines,right_coord,left_coord):
+    for r,pt1,pt2 in zip(lines,pts1,pts2):
         color = tuple(np.random.randint(0,255,3).tolist())
         x0,y0 = map(int, [0, -r[2]/r[1] ])
         x1,y1 = map(int, [c, -(r[2]+r[0]*c)/r[1] ])
         img1 = cv2.line(img1, (x0,y0), (x1,y1), color,1)
-        #img1 = cv2.circle(img1,tuple(pt1),5,color,-1)
-        #img2 = cv2.circle(img2,tuple(pt2),5,color,-1)
+        img1 = cv2.circle(img1,tuple(pt1),5,color,-1)
+        img2 = cv2.circle(img2,tuple(pt2),5,color,-1)
     return img1,img2
 
 #Copy original coordinates.
-right_coord_x = right_coord
-left_coord_x = left_coord
+right_coord_x = coord_right
+left_coord_x = coord_left
 
 # Find epilines corresponding to points in right image (second image) and
 # drawing its lines on left image
-lines1 = cv2.computeCorrespondEpilines(left_coord.reshape(-1,1,2), 2,F1)
+lines1 = cv2.computeCorrespondEpilines(coord_left.reshape(-1,1,2), 2,F1)
 lines1 = lines1.reshape(-1,3)
-img5,img6 = drawlines(img1,img2,lines1,right_coord,left_coord)
+img5,img6 = drawlines(img1,img2,lines1,coord_right,coord_left)
 # Find epilines corresponding to points in left image (first image) and
 # drawing its lines on right image
-lines2 = cv2.computeCorrespondEpilines(right_coord.reshape(-1,1,2), 1,F1)
+lines2 = cv2.computeCorrespondEpilines(coord_right.reshape(-1,1,2), 1,F1)
 lines2 = lines2.reshape(-1,3)
-img3,img4 = drawlines(img2,img1,lines2,left_coord,right_coord)
-plt.subplot(121),plt.imshow(img5)
-plt.subplot(122),plt.imshow(img3)
-plt.show()
+img3,img4 = drawlines(img2,img1,lines2,coord_left,coord_right)
+#plt.subplot(121),plt.imshow(img5)
+#plt.subplot(122),plt.imshow(img3)
 
+#plt.show()
+# Save results in results folder
+cv2.imwrite(workingFolder + "/results/img1.png",img1)
+cv2.imwrite(workingFolder + "/results/img2.png",img2)
+cv2.waitKey(0)
 
 right_coord = right_coord.T         # transpose from 54 x 3 to 3 x 54
 left_coord = left_coord.T           # transpose from 54 x 3 to 3 x 54
