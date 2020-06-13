@@ -82,7 +82,7 @@ else:
         # -- Read the file and convert in greyscale
         img_r = cv2.imread(fname)
         # Clone the original image to keep original unchanged
-        img1 = img_r.copy()
+        img2 = img_r.copy()
         # Convert to grayscale
         gray = cv2.cvtColor(img_r, cv2.COLOR_BGR2GRAY)
         print("Reading image ", fname)
@@ -131,7 +131,7 @@ else:
         # -- Read the file and convert in greyscale
         img_l = cv2.imread(fname)
         # Clone the original image to keep original unchanged
-        img2 = img_l.copy()
+        img1 = img_l.copy()
         # Convert to grayscale
         gray = cv2.cvtColor(img_l, cv2.COLOR_BGR2GRAY)
         print("Reading image ", fname)
@@ -209,10 +209,88 @@ coord_left = np.flipud(left_coord)
 # Add z coordinates with ones
 z_coord = np.ones((54, 1), np.float32)
 # Now, join z coordinates to the left of RIGHT coordinates
-right_coord = np.concatenate((right_coord, z_coord), axis=1)
-left_coord = np.concatenate((left_coord, z_coord), axis=1)
+right_coord = np.concatenate((coord_right, z_coord), axis=1)
+left_coord = np.concatenate((coord_left, z_coord), axis=1)
 
+# Reshape to 3 * 54
+#coord_right = np.reshape(right_coord,(3,54))
+#coord_left = np.reshape(left_coord,(3,54))
+coord_right = right_coord.T
+coord_left = left_coord.T
+# - - - - - - - - - -  New Code  - - - - - - - - - - - - - -
 
+def compute_fundamental(x1x,x2x):
+    """ Computes the fundamental matrix from corresponding points
+                (x1x,x2x 3*n arrays) using the 8 point algorithm.
+                Each row in the Ax matrix below is constructed as
+                [x*x', x*y', x, y*x', y*y', y, x', y', 1]
+    """
+    n = x1x.shape[1]
+    if x2x.shape[1] != n:
+        raise ValueError("Number of points don't match.")
+
+    '''
+    Your Code Here!
+    '''
+    # build matrix for equations
+    Ax = np.zeros((n,9))
+    indice = 0
+
+    # [x*x', x*y', x, y*x', y*y', y, x', y', 1]
+    while indice < n:
+        Ax[indice][0] = x1x[0][indice] * x2x[0][indice]  # x*x'
+        Ax[indice][1] = x1x[0][indice] * x2x[1][indice]  # x*y'
+        Ax[indice][2] = x1x[0][indice]                   # x
+        Ax[indice][3] = x1x[1][indice] * x2x[0][indice]  # y*x'
+        Ax[indice][4] = x1x[1][indice] * x2x[1][indice]  # y*y'
+        Ax[indice][5] = x1x[1][indice]                   # y
+        Ax[indice][6] = x2x[0][indice]                   # x'
+        Ax[indice][7] = x2x[1][indice]                   # y'
+        Ax[indice][8] = 1
+        indice += 1
+
+    '''
+    Your Code End!
+    '''
+    # compute linear least square solution
+    U,S,V = np.linalg.svd(Ax)
+    Fx2 = V[-1].reshape(3,3)
+
+    # constrain Fx2
+    # make rank 2 by zeroing out last singular value
+    U,S,V = np.linalg.svd(Fx2)
+    S[2] = 0
+    Fx2 = np.dot(U,np.dot(np.diag(S),V))
+    return Fx2/Fx2[2,2]
+
+def fundamental_matrix(x1x,x2x):
+    n = x1x.shape[1]
+    if x2x.shape[1] != n:
+        raise ValueError("Number of points don't match.")
+    # normalize image coordinates
+    x1x = x1x / x1x[2]
+    mean_1 = np.mean(x1x[:2],axis=1)
+    S1 = np.sqrt(2) / np.std(x1x[:2])
+    T1 = np.array([[S1,0,-S1*mean_1[0]],[0,S1,-S1*mean_1[1]],[0,0,1]])
+    x1x = np.dot(T1,x1x)
+    x2x = x2x / x2x[2]
+    mean_2 = np.mean(x2x[:2],axis=1)
+    S2 = np.sqrt(2) / np.std(x2x[:2])
+    T2 = np.array([[S2,0,-S2*mean_2[0]],[0,S2,-S2*mean_2[1]],[0,0,1]])
+    x2x = np.dot(T2,x2x)
+    # compute Fx with the normalized coordinates
+    Fx = compute_fundamental(x1x,x2x)
+    # reverse normalization
+    Fx = np.dot(T1.T,np.dot(Fx,T2))
+
+    return Fx/Fx[2,2]
+
+# - - - - - - - - - -  Normalisation process  - - - - - - - - - - - - - -
+
+F4 = fundamental_matrix(coord_left, coord_right)
+
+coord_right = coord_right.T
+coord_left = coord_left.T
 
 right_coord = right_coord.T  # transpose from 54 x 3 to 3 x 54
 left_coord = left_coord.T  # transpose from 54 x 3 to 3 x 54
@@ -220,11 +298,10 @@ left_coord = left_coord.T  # transpose from 54 x 3 to 3 x 54
 # Create the normalisation matrix
 norm = np.array([[1.041666667E-03, 0, -1], [0, 1.851851852E-03, -1], [0, 0, 1]])
 # Normalise using the normalisation matrix (RIGHT), rename as x_1
-
-x_1 = np.matmul(norm, right_coord)
+x_1 = np.matmul(norm, left_coord)
 # Normalise using the normalisation matrix (LEFT), rename as x2
+x2 = np.matmul(norm.T, right_coord)
 
-x2 = np.matmul(norm, left_coord)
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 # Create matrix A from the correlated points of left and right coordinates
@@ -256,28 +333,25 @@ no_use, F = np.array_split(vh, [8], axis=1)
 # re-arrange Fundamental Matrix
 F = np.reshape(F, (3, 3))
 
-F = F.T
+# HASTA AQUI
 
 u, s, vh = np.linalg.svd(F, full_matrices=True)
 
+#s[2] = 0
+#s = np.reshape(s, (3, 1))
 D = np.zeros((3, 3), np.float32)
 D[0][0] = s[0]
 D[1][1] = s[1]
 
-F = np.matmul(u, D)
-F = np.matmul(F, vh.T)
-
-# no_use, F = np.array_split(vh, [2], axis=1)
-# D = np.zeros((3, 3), np.float32)
-# D[0][0] = F[0]
-# D[1][1] = F[1]
-# D[0][0] = s[0][0]
-# fund_mat = np.matmul(u, D)
-# fund_mat = np.matmul(fund_mat, vh)
+F1 = np.matmul(u, D)
+F1 = np.matmul(F1, vh)
 
 # De-normalise
-F = np.matmul(norm.T, F)
-F = np.matmul(F, norm)
+F3 = np.matmul(norm.T, F1)
+F3 = np.matmul(F3, norm)
+
+F = F3
+F = F/F[2][2]
 
 # test
 # test_1 = np.array([.16066337, .42508912, 1])
@@ -286,27 +360,11 @@ F = np.matmul(F, norm)
 test_1 = np.array([380, 245, 1])
 test_2 = np.array([[927], [429], [1]])
 
-result = np.matmul(test_1, F1)
-result2 = np.reshape(result, (1, 3))
-result2 = np.linalg.pinv(result2)
+result = np.matmul(test_1, F)
 result = np.matmul(result, test_2)
 
-# Find epilines corresponding to points in right image (second image) and
-# drawing its lines on left image
-lines1 = cv2.computeCorrespondEpilines(left_coord_x.reshape(-1, 1, 2), 2, F)
-lines1 = lines1.reshape(-1, 3)
-img5, img6 = drawlines(img1, img2, lines1, right_coord_x, left_coord_x)
-# Find epilines corresponding to points in left image (first image) and
-# drawing its lines on right image
-lines2 = cv2.computeCorrespondEpilines(right_coord_x.reshape(-1, 1, 2), 1, F)
-lines2 = lines2.reshape(-1, 3)
-img3, img4 = drawlines(img2, img1, lines2, left_coord_x, right_coord_x)
-plt.subplot(121), plt.imshow(img5)
-plt.subplot(122), plt.imshow(img3)
-plt.show()
-
-cv2.destroyAllWindows()
-
+coord_left, no_use = np.array_split(coord_left, [2], axis=1)
+coord_right, no_use = np.array_split(coord_right, [2], axis=1)
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Draw epipolar images using F calculated with 8 point algorithm
@@ -338,17 +396,17 @@ def drawlines(img_a, img_b, lines, pts1, pts2):
 
 # Find epilines corresponding to points in right image (second image) and
 # drawing its lines on left image
-lines1 = cv2.computeCorrespondEpilines(coord_left.reshape(-1, 1, 2), 2, F1)
+lines1 = cv2.computeCorrespondEpilines(coord_left.reshape(-1, 1, 2), 2, F4)
 lines1 = lines1.reshape(-1, 3)
 
 # noinspection PyUnboundLocalVariable
-img5, img6 = drawlines(img1, img2, lines1, coord_right, coord_left)
+img5, img6 = drawlines(img2, img1, lines1, coord_right, coord_left)
 
 # Find epilines corresponding to points in left image (first image) and
 # drawing its lines on right image
-lines2 = cv2.computeCorrespondEpilines(coord_right.reshape(-1, 1, 2), 1, F1)
+lines2 = cv2.computeCorrespondEpilines(coord_right.reshape(-1, 1, 2), 1, F4)
 lines2 = lines2.reshape(-1, 3)
-img3, img4 = drawlines(img2, img1, lines2, coord_left, coord_right)
+img3, img4 = drawlines(img1, img2, lines2, coord_left, coord_right)
 
 # Show plot of the two epipolar line images
 plt.subplot(121),plt.imshow(img5)
@@ -356,8 +414,8 @@ plt.subplot(122),plt.imshow(img3)
 plt.show()
 
 # Save results in results folder
-cv2.imwrite(workingFolder + "/results/img1.png", img1)
-cv2.imwrite(workingFolder + "/results/img2.png", img2)
+cv2.imwrite(workingFolder + "/results/img1_8point.png", img1)
+cv2.imwrite(workingFolder + "/results/img2_8point.png", img2)
 
 
 # - - - - - - - - - END of the program - - - - - - - - - - - - -
