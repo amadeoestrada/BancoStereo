@@ -46,27 +46,6 @@ objpoints = []  # 3d point in real world space
 imgpoints_r = []  # 2d points in image plane. RIGHT
 imgpoints_l = []  # 2d points in image plane. LEFT
 
-if len(sys.argv) < 6:
-    print("\n Not enough inputs are provided. Using the default values.\n\n"
-          " type -h for help")
-else:
-    workingFolder = sys.argv[1]
-    imageType = sys.argv[2]
-    nRows = int(sys.argv[3])
-    nCols = int(sys.argv[4])
-    dimension = float(sys.argv[5])
-
-if '-h' in sys.argv or '--h' in sys.argv:
-    print("\n IMAGE CALIBRATION GIVEN A SET OF IMAGES")
-    print(" call: python cameracalib.py <folder> <image type> <num rows (9)> <num cols (6)> <cell dimension (25)>")
-    print("\n The script will look for every image in the provided folder and will show the pattern found."
-          " User can skip the image pressing ESC or accepting the image with RETURN. "
-          " At the end the end the following files are created:"
-          "  - cameraDistortion.txt"
-          "  - cameraMatrix.txt \n\n")
-
-    sys.exit()
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Process the RIGHT camera file
 filename = workingFolder + "/right/*." + imageType
@@ -116,7 +95,7 @@ else:
 
 cv2.destroyAllWindows()
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Process the LEFT camera file
 filename = workingFolder + "/left/*." + imageType
 images = glob.glob(filename)
@@ -169,42 +148,18 @@ cv2.destroyAllWindows()
 # Extract the coordinates from the image points list (3 dimension array)
 right_coord = np.array(imgpoints_r[0])  # convert from list to array
 right_coord = np.squeeze(right_coord)  # Convert to 2 dimension array
-# Vertically flip array. Checker board pattern results are ordered from-bottom right to top-left
+# Vertically flip array. Checker board pattern results are ordered
+# from-bottom right to top-left
 coord_right = np.flipud(right_coord)
 
 # Extract the coordinates from the image points list (3 dimension array)
 left_coord = np.array(imgpoints_l[0])  # convert from list to array
 left_coord = np.squeeze(left_coord)  # Convert to 2 dimension array
-# Vertically flip array. Checker board pattern results are ordered from-bottom right to top-left
+# Vertically flip array. Checker board pattern results are ordered
+# from-bottom right to top-left
 coord_left = np.flipud(left_coord)
 
-# Convert the pixel coordinates into normalised coordinates (-1 to 1) with the centroid ( 0 ) at the center
-# of the image.
-
-# --- Normalise RIGHT image coordinates
-# x_coord, y_coord = np.array_split(right_coord, 2, 1)  # Split array into x_coord and y_coord
-
-# Use normalization on coordinates
-# x_coord = x_coord / (image_res_x / 2) - 1  # Normalise x_coord
-# y_coord = y_coord / (image_res_y / 2) - 1  # Normalise y_coord
-
-# Join x and y coordinates into RIGHT coordinates
-# right_coord = np.concatenate((x_coord, y_coord), axis=1)
-
-# --- Normalise LEFT image coordinates
-
-# x_coord, y_coord = np.array_split(left_coord, 2, 1)  # Split array into x_coord and y_coord
-
-# Normalize coordinates
-# x_coord = x_coord / (image_res_x / 2) - 1  # Normalise x_coord
-# y_coord = y_coord / (image_res_y / 2) - 1  # Normalise y_coord
-
-# Join x and y coordinates into RIGHT coordinates
-# left_coord = np.concatenate((x_coord, y_coord), axis=1)
-# Now, join z coordinates to the left of LEFT coordinates
-
-
-# Create Z column with ones
+# - - - - - - -   Add third dimension with ones - - - - - - - - -
 
 # Add z coordinates with ones
 z_coord = np.ones((54, 1), np.float32)
@@ -212,46 +167,39 @@ z_coord = np.ones((54, 1), np.float32)
 right_coord = np.concatenate((coord_right, z_coord), axis=1)
 left_coord = np.concatenate((coord_left, z_coord), axis=1)
 
-# Reshape to 3 * 54
-#coord_right = np.reshape(right_coord,(3,54))
-#coord_left = np.reshape(left_coord,(3,54))
+# Reshape arrays to 3 * 54
 coord_right = right_coord.T
 coord_left = left_coord.T
-# - - - - - - - - - -  New Code  - - - - - - - - - - - - - -
+
+# - - - - - - -   Fundamental matrix routines  - - - - - - - - -
 
 def compute_fundamental(x1x,x2x):
     """ Computes the fundamental matrix from corresponding points
                 (x1x,x2x 3*n arrays) using the 8 point algorithm.
                 Each row in the Ax matrix below is constructed as
-                [x*x', x*y', x, y*x', y*y', y, x', y', 1]
+                [x*x', y*x', x', x*y', y*y', y, x', y', 1]
     """
     n = x1x.shape[1]
     if x2x.shape[1] != n:
         raise ValueError("Number of points don't match.")
 
-    '''
-    Your Code Here!
-    '''
     # build matrix for equations
     Ax = np.zeros((n,9))
     indice = 0
 
-    # [x*x', x*y', x, y*x', y*y', y, x', y', 1]
+    # [x*x', y*x', x', x*y', y*y', y, x', y', 1]
     while indice < n:
         Ax[indice][0] = x1x[0][indice] * x2x[0][indice]  # x*x'
-        Ax[indice][1] = x1x[0][indice] * x2x[1][indice]  # x*y'
-        Ax[indice][2] = x1x[0][indice]                   # x
-        Ax[indice][3] = x1x[1][indice] * x2x[0][indice]  # y*x'
+        Ax[indice][1] = x1x[0][indice] * x2x[1][indice]  # y*x'
+        Ax[indice][2] = x1x[0][indice]                   # x'
+        Ax[indice][3] = x1x[1][indice] * x2x[0][indice]  # x*y'
         Ax[indice][4] = x1x[1][indice] * x2x[1][indice]  # y*y'
         Ax[indice][5] = x1x[1][indice]                   # y
         Ax[indice][6] = x2x[0][indice]                   # x'
         Ax[indice][7] = x2x[1][indice]                   # y'
-        Ax[indice][8] = 1
+        Ax[indice][8] = 1                                # 1
         indice += 1
 
-    '''
-    Your Code End!
-    '''
     # compute linear least square solution
     U,S,V = np.linalg.svd(Ax)
     Fx2 = V[-1].reshape(3,3)
@@ -285,97 +233,29 @@ def fundamental_matrix(x1x,x2x):
 
     return Fx/Fx[2,2]
 
-# - - - - - - - - - -  Normalisation process  - - - - - - - - - - - - - -
+# - - - - - - - - -  Fundamental Matrix call out  - - - - - - - - - - - - -
 
-F4 = fundamental_matrix(coord_left, coord_right)
+F = fundamental_matrix(coord_left, coord_right)
 
 coord_right = coord_right.T
 coord_left = coord_left.T
 
-right_coord = right_coord.T  # transpose from 54 x 3 to 3 x 54
-left_coord = left_coord.T  # transpose from 54 x 3 to 3 x 54
-
-# Create the normalisation matrix
-norm = np.array([[1.041666667E-03, 0, -1], [0, 1.851851852E-03, -1], [0, 0, 1]])
-# Normalise using the normalisation matrix (RIGHT), rename as x_1
-x_1 = np.matmul(norm, left_coord)
-# Normalise using the normalisation matrix (LEFT), rename as x2
-x2 = np.matmul(norm.T, right_coord)
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-# Create matrix A from the correlated points of left and right coordinates
-
-A = np.zeros((54, 9), np.float32)
-indice = 0
-
-while indice < 54:
-    A[indice][0] = x_1[0][indice] * x2[0][indice]
-    A[indice][1] = x_1[1][indice] * x2[0][indice]
-    A[indice][2] = x2[0][indice]
-    A[indice][3] = x_1[0][indice] * x2[1][indice]
-    A[indice][4] = x_1[1][indice] * x2[1][indice]
-    A[indice][5] = x2[1][indice]
-    A[indice][6] = x_1[0][indice]
-    A[indice][7] = x_1[1][indice]
-    A[indice][8] = 1
-    indice += 1
-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-# Calculate SVD
-# A = A.T
-u, s, vh = np.linalg.svd(A, full_matrices=True)
-
-# extract the last column of matrix vh
-no_use, F = np.array_split(vh, [8], axis=1)
-
-# re-arrange Fundamental Matrix
-F = np.reshape(F, (3, 3))
-
-# HASTA AQUI
-
-u, s, vh = np.linalg.svd(F, full_matrices=True)
-
-#s[2] = 0
-#s = np.reshape(s, (3, 1))
-D = np.zeros((3, 3), np.float32)
-D[0][0] = s[0]
-D[1][1] = s[1]
-
-F1 = np.matmul(u, D)
-F1 = np.matmul(F1, vh)
-
-# De-normalise
-F3 = np.matmul(norm.T, F1)
-F3 = np.matmul(F3, norm)
-
-F = F3
-F = F/F[2][2]
-
-# test
-# test_1 = np.array([.16066337, .42508912, 1])
-# test_2 = np.array([[-.25848138], [.2863686], [1]])
-
-test_1 = np.array([380, 245, 1])
-test_2 = np.array([[927], [429], [1]])
-
-result = np.matmul(test_1, F)
-result = np.matmul(result, test_2)
-
 coord_left, no_use = np.array_split(coord_left, [2], axis=1)
 coord_right, no_use = np.array_split(coord_right, [2], axis=1)
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - -  Draw epipolar lines - - - - - - - - - - - - -
 # Draw epipolar images using F calculated with 8 point algorithm
 
 # Function to draw epipolar lines and match circles to images.
 def drawlines(img_a, img_b, lines, pts1, pts2):
-    """ img_a - image on which we draw the epilines for the points in img_b lines - corresponding epilines
-        The lines argument contains an equation for each epipolar line. The for cicle below takes the iterables
-        lines, pts1, and pts2 into a tuple assigned to r[0], r[1], r[2], pt1, pt2, for each for iteration.
-        Therefore, each iteration will draw a line from the extreme right (x = 0) to the extreme left (x = c)
-        and the correspondent coordinates of the matching points on the two images.
+    """ img_a - image on which we draw the epilines for the points in img_b lines
+        - corresponding epilines.
+        The lines argument contains an equation for each epipolar line. The for
+        cycle below takes the iterables lines, pts1, and pts2 into a tuple assigned
+        to r[0], r[1], r[2], pt1, pt2, for each for iteration.
+        Therefore, each iteration will draw a line from the extreme right (x = 0)
+        to the extreme left (x = c) and the correspondent coordinates of the
+        matching points on the two images.
     """
     # Assign row, column and color information
     r, c, color_info = img_a.shape
@@ -396,15 +276,13 @@ def drawlines(img_a, img_b, lines, pts1, pts2):
 
 # Find epilines corresponding to points in right image (second image) and
 # drawing its lines on left image
-lines1 = cv2.computeCorrespondEpilines(coord_left.reshape(-1, 1, 2), 2, F4)
+lines1 = cv2.computeCorrespondEpilines(coord_left.reshape(-1, 1, 2), 2, F)
 lines1 = lines1.reshape(-1, 3)
-
-# noinspection PyUnboundLocalVariable
 img5, img6 = drawlines(img2, img1, lines1, coord_right, coord_left)
 
 # Find epilines corresponding to points in left image (first image) and
 # drawing its lines on right image
-lines2 = cv2.computeCorrespondEpilines(coord_right.reshape(-1, 1, 2), 1, F4)
+lines2 = cv2.computeCorrespondEpilines(coord_right.reshape(-1, 1, 2), 1, F)
 lines2 = lines2.reshape(-1, 3)
 img3, img4 = drawlines(img1, img2, lines2, coord_left, coord_right)
 
@@ -416,6 +294,5 @@ plt.show()
 # Save results in results folder
 cv2.imwrite(workingFolder + "/results/img1_8point.png", img1)
 cv2.imwrite(workingFolder + "/results/img2_8point.png", img2)
-
 
 # - - - - - - - - - END of the program - - - - - - - - - - - - -
